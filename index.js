@@ -1,43 +1,133 @@
+'use strict';
 var fs = require('fs');
+var path = require('path');
+var util = require('util');
+
+require('colors');
+var async = require('async');
 var tar = require('tar');
 var zlib = require('zlib');
+var ejs = require('ejs');
 
-var path = process.argv[2];
-
-if (!path)  {
-  throw new Error('No path specified');
-}
-
-function streamError(e, r) {
-  console.error('ERROR!');
-  console.log(e, r);
-}
-
-function exEnd(e, r) {
-  console.log(e, r);
-}
-
-// Try to list all files in dir.
-fs.readdir(path, function(e, r) {
-  // Loop over each dir.
-  if (e) {
-    throw e;
+function logger() {
+  var args = Array.prototype.slice.call(arguments);
+  var color = 'green';
+  var severity = '[DEBUG]';
+  if (args[args.length - 1] === 'error') {
+    args.splice(args.length - 1);
+    color = 'red';
+    severity = '[ERROR]'.yellow;
   }
-  r.forEach(function(n) {
-    // There should be a dump.tar.gz file in there.
-    var p = path + '/' + n + '/dump.tar.gz';
-    fs.stat(p, function(e2, r2) {
-      if (e) {
-        return;
-      }
-      var exx = tar.Extract({path: __dirname + '/' + n})
-      .on('error', streamError)
-      .on('end', exEnd);
-      var gunz = zlib.createGunzip();
-      fs.createReadStream(__dirname + '/' + p)
-      .on('error', streamError)
-      .pipe(gunz)
-      .pipe(exx);
+  var str = util.format.apply(util, args)[color];
+  var date = ('[' + new Date().toString() + ']').blue;
+  console.log.apply(console, [date, severity, str]);
+}
+
+function unzipAndExtract(archivePath, n, callback) {
+  logger('Starting unzip and extract of', n);
+  var p = path.join(archivePath, n, 'dump.tar.gz');
+  var exx = tar.Extract({path: path.join(__dirname, 'out', n)})
+  .on('error', callback)
+  .on('end', callback);
+  var gunz = zlib.createGunzip();
+  fs.createReadStream(path.join(__dirname, p))
+  .on('error', callback)
+  .pipe(gunz)
+  .pipe(exx);
+}
+
+function createDirSeries(archivePath, item) {
+  return (function(dir, callback) {
+    var p = path.join(archivePath, dir, 'dump.tar.gz');
+    async.series([
+      fs.stat.bind(fs, p),
+      unzipAndExtract.bind(null, archivePath, dir)
+    ], callback);
+  }).bind(null, item);
+}
+
+function processLogFile(server, data, callback) {
+  var lines = data.toString();
+  logger('Processing log file for', server);
+  var docs = lines.split("\n").map(function(line, i) {
+    var words = line.split(' ');
+    var body = words.slice(3).join(' ');
+    return {
+      id: util.format('%s-%s-%s-%d', i, server, words[1], i),
+      client: util.format('%s-%s', server, words[1]),
+      severity: words[0],
+      server: server,
+      body: body
+    };
+  });
+  callback(null, {
+    server: server,
+    logs: docs
+  });
+}
+
+function createIndex(server, callback) {
+  return (function(item, cb) {
+    var logPath = path.join('out', item, 'casper');
+    async.waterfall([
+      fs.readFile.bind(fs, path.join(logPath, 'out.log')),
+      function(data, callback) {
+        callback(null, data);
+      },
+      processLogFile.bind(null, item)
+    ], cb);
+  }).bind(null, server);
+}
+
+function extractAndProcess(archivePath, r, callback) {
+  async.parallel(r.map(createDirSeries.bind(null, archivePath)), callback);
+}
+
+function writeIndexesToJson(data, callback) {
+  logger('Will create indexes to JSON');
+  async.parallel(data.map(function(item) {
+    return fs.writeFile.bind(async, path.join('out', item.server + '.json'), JSON.stringify(item.logs), 'utf8');
+  }), callback);
+}
+
+function processDirectories(archivePath, r, callback) {
+  async.waterfall([
+    async.parallel.bind(async, r.map(createDirSeries.bind(null, archivePath))),
+    function (data, callback) {
+      return async.parallel(r.map(createIndex), callback);
+    },
+    writeIndexesToJson
+  ], function(errs) {
+    if (errs) {
+      throw errs;
+    }
+    logger('Generating output reports');
+    async.waterfall([
+      fs.readFile.bind(fs, path.join('templates', 'index.html'), 'utf8'),
+      function renderTemplate(data, callback) {
+        logger('Rendering template');
+        callback(null, ejs.render(data, {servers: r}));
+      },
+      fs.writeFile.bind(fs, path.join('out', 'index.html')),
+      fs.readFile.bind(fs, path.join('templates', 'script.js'), 'utf8'),
+      fs.writeFile.bind(fs, path.join('out', 'script.js'))
+    ], function(err, data) {
+      callback();
     });
   });
-});
+}
+
+module.exports = function(archivePath) {
+  // Try to list all files in dir.
+  logger('Processing directory', archivePath);
+  async.waterfall([
+    fs.readdir.bind(fs, archivePath),
+    processDirectories.bind(null, archivePath)
+  ], function(err) {
+    if (err) {
+      logger(err, 'error');
+      throw err;
+    }
+    logger('Processing completed.');
+  });
+};
