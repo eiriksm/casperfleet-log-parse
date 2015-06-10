@@ -50,14 +50,17 @@ function processLogFile(server, data, callback) {
   var lines = data.toString();
   logger('Processing log file for', server);
   var docs = lines.split("\n").map(function(line, i) {
-    var words = line.split(' ');
-    var body = words.slice(3).join(' ');
+    if (!line) {
+      return {};
+    }
+    var data = JSON.parse(line);
     return {
-      id: util.format('%s-%s-%s-%d', i, server, words[1], i),
-      client: util.format('%s-%s', server, words[1]),
-      severity: words[0],
+      id: util.format('%s-%s-%s-%d', i, server, data.id, i),
+      client: util.format('%s-%s', server, data.id),
+      severity: data.type,
       server: server,
-      body: body
+      body: data.message,
+      date: data.date
     };
   });
   callback(null, {

@@ -19,6 +19,9 @@
   function renderResults() {
 
     var data = serverData.filter(function(doc) {
+      if (!doc.client) {
+        return false;
+      }
       var fits = true;
       if (query.length) {
         fits = doc.body.indexOf(query) > -1 ||
@@ -34,7 +37,7 @@
     }).map(function(doc) {
       doc.clientData = {
         id: doc.client,
-        name: doc.client.match(/-[a-z|0-9]+:/)
+        name: doc.client.match(/com-[a-z|0-9]+/).toString().replace('com-', '')
       };
       doc.rendered_body = doc.body;
       if (doc.body.indexOf('Captured a screenshot') > -1) {
