@@ -2,11 +2,11 @@
 var fs = require('fs');
 var path = require('path');
 var util = require('util');
+var mkdirp = require('mkdirp')
 
 require('colors');
 var async = require('async');
 var tar = require('tar');
-var zlib = require('zlib');
 var ejs = require('ejs');
 
 function logger() {
@@ -23,17 +23,16 @@ function logger() {
   console.log.apply(console, [date, severity, str]);
 }
 
-function unzipAndExtract(archivePath, n, callback) {
+async function unzipAndExtract(archivePath, n, callback) {
   logger('Starting unzip and extract of', n);
+  await mkdirp(path.join(__dirname, 'out', n))
   var p = path.join(archivePath, n, 'dump.tar.gz');
-  var exx = tar.Extract({path: path.join(__dirname, 'out', n)})
-  .on('error', callback)
-  .on('end', callback);
-  var gunz = zlib.createGunzip();
-  fs.createReadStream(path.join(__dirname, p))
-  .on('error', callback)
-  .pipe(gunz)
-  .pipe(exx);
+  var exx = tar.x({
+    cwd: path.join(__dirname, 'out', n),
+    file: path.join(__dirname, p)
+  })
+  .catch(callback)
+  .then(callback);
 }
 
 function createDirSeries(archivePath, item) {
