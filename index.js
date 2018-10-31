@@ -93,6 +93,9 @@ function writeIndexesToJson(data, callback) {
 }
 
 function processDirectories(archivePath, r, callback) {
+  r = r.filter(function(n) {
+    return n !== ".DS_Store"
+  })
   async.waterfall([
     async.parallel.bind(async, r.map(createDirSeries.bind(null, archivePath))),
     function (data, callback) {
