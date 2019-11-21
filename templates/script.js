@@ -40,7 +40,7 @@
         name: doc.client.match(/com-[a-z|0-9]+/).toString().replace('com-', '')
       };
       doc.rendered_body = doc.body;
-      if (doc.body.indexOf('Captured a screenshot') > -1) {
+      if (doc.body.indexOf('Capturing') > -1) {
         doc.rendered_body = '<a href="' + doc.server + '/' + doc.body.match(/.[a-z]*\/.*.png/) + '">' + doc.body + '</a>';
       }
       return Mustache.render(template, doc);
